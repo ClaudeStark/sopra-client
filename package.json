@@ -6,20 +6,40 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "release": "semantic-release"
   },
   "dependencies": {
+    "@ant-design/nextjs-registry": "^1.0.2",
+    "@ant-design/v5-patch-for-react-19": "^1.0.3",
+    "@stomp/stompjs": "^7.3.0",
+    "antd": "^6.0.0",
+    "lucide-react": "^1.8.0",
+    "maplibre-gl": "^5.22.0",
+    "maplibre-react-components": "^0.2.6",
     "next": "16.2.4",
+    "node-localstorage": "^3.0.5",
+    "process": "^0.11.10",
+    "proj4": "^2.20.8",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "sockjs-client": "^1.6.1"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^12.0.2",
+    "@semantic-release/release-notes-generator": "^14.0.3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/sockjs-client": "^1.5.4",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
+    "semantic-release": "^24.2.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
