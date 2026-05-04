@@ -1,69 +1,69 @@
 "use client";
-
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { MyUserDTO, UserDTO } from "@/types/user";
 import { ApiService } from "@/api/apiService";
 import { AuthContextType } from "@/types/auth";
 import { useRouter } from "next/navigation";
+import { useWebSocket } from "@/context/WebSocketContext";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
 const apiService = new ApiService();
-
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<{ userId: number; username: string } | null>(null);
     const [token, setToken] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const router = useRouter();
+    const { connect, disconnect } = useWebSocket();
 
-    const fetchUser = async (token: string, userId: number) => {
+    const logout = () => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
+        setToken(null);
+        setUser(null);
+        disconnect();
+        router.push("/login");
+    };
+
+    const fetchUser = async (token: string, userId: number, isInitial = false) => {
         try {
             const userData = await apiService.get<MyUserDTO | UserDTO>(
                 `/users/${userId}`,
-                { headers: { token: token } });
-
+                { headers: { token: token } }
+            );
             if (userData && "email" in userData) {
-                setUser({
-                    userId: userId,
-                    username: userData.username
-                });
+                setUser({ userId, username: userData.username });
             } else {
-                logout()
+                if (!isInitial) logout();
             }
-
         } catch (e) {
-            logout(); // Token ungültig? Ausloggen.
+            if (!isInitial) logout();
         } finally {
             setIsLoading(false);
         }
     };
 
-    // Im AuthContext.tsx
     useEffect(() => {
-        if (typeof window === "undefined") return;
-
-        const rawToken = localStorage.getItem("token");
-        const rawUserId = localStorage.getItem("userId");
-
-        if (rawToken && rawUserId) {
-            try {
-                // WICHTIG: Da dein Hook JSON.stringify nutzt, 
-                // MÜSSEN wir hier JSON.parse nutzen.
-                const parsedToken = JSON.parse(rawToken);
-                const parsedUserId = JSON.parse(rawUserId);
-
-                setToken(parsedToken);
-                fetchUser(parsedToken, Number(parsedUserId));
-            } catch (e) {
-                // Falls im Storage Müll steht (kein validiertes JSON), 
-                // löschen wir alles sauber.
-                console.error("Fehler beim Parsen der Auth-Daten", e);
-                logout();
+        const init = async () => {
+            if (typeof window === "undefined") return;
+            const rawToken = localStorage.getItem("token");
+            const rawUserId = localStorage.getItem("userId");
+            if (rawToken && rawUserId) {
+                try {
+                    const parsedToken = JSON.parse(rawToken);
+                    const parsedUserId = JSON.parse(rawUserId);
+                    await fetchUser(parsedToken, Number(parsedUserId), true);
+                    setToken(parsedToken);
+                    connect(String(parsedUserId), parsedToken);
+                } catch (e) {
+                    console.error("Fehler beim Parsen der Auth-Daten", e);
+                    setIsLoading(false);
+                }
+            } else {
+                setIsLoading(false);
             }
-        } else {
-            setIsLoading(false);
-        }
+        };
+        init();
     }, []);
 
     const login = async (token: string, userId: number) => {
@@ -71,14 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("userId", JSON.stringify(userId));
         setToken(token);
         await fetchUser(token, userId);
-    };
-
-    const logout = () => {
-        localStorage.removeItem("token");
-        localStorage.removeItem("userId");
-        setToken(null);
-        setUser(null);
-        router.push("/login");
+        connect(String(userId), token);
     };
 
     return (

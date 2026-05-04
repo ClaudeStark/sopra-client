@@ -175,11 +175,7 @@ const MainPage: React.FC = () => {
   const { value: token } = useLocalStorage<string>("token", "");
 
   const handlePlay = () => {
-    if (!token) {
-      router.push("/login");
-    } else {
-      router.push("/lobbies");
-    }
+    router.push("/lobbies");
   };
 
   return (

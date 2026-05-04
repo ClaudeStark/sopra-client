@@ -95,11 +95,11 @@ const Profile: React.FC = () => {
 
   const scoreboard = profileData.userScoreboard;
   const totalPoints = scoreboard?.totalPoints ?? 0;
-  const gamesPlayed = scoreboard?.gamesPlayed ?? 0;
-  const gamesWon = scoreboard?.gamesWon ?? 0;
+  //const gamesPlayed = scoreboard?.gamesPlayed ?? 0;
+  //const gamesWon = scoreboard?.gamesWon ?? 0;
   const precision = scoreboard?.guessingPrecision ?? 0;
-  const avgPoints = gamesPlayed > 0 ? Math.round(totalPoints / gamesPlayed) : 0;
-  const winRate = gamesPlayed > 0 ? Math.round((gamesWon / gamesPlayed) * 100) : 0;
+  //const avgPoints = gamesPlayed > 0 ? Math.round(totalPoints / gamesPlayed) : 0;
+  //const winRate = gamesPlayed > 0 ? Math.round((gamesWon / gamesPlayed) * 100) : 0;
 
   const handleEdit = () => {
     // Wir nehmen die Daten von profileData (dem User, den wir gerade sehen)
@@ -239,14 +239,14 @@ const Profile: React.FC = () => {
               </div>
               <div className="profile-stat-card">
                 <div className="profile-stat-icon">🎮</div>
-                <div className="profile-stat-card-value">{gamesPlayed}</div>
+                <div className="profile-stat-card-value">{/*gamesPlayed*/}</div>
                 <div className="profile-stat-card-label">Overall Games</div>
               </div>
             </div>
             <div className="profile-stats-cards">
               <div className="profile-stat-card">
                 <div className="profile-stat-icon">📊</div>
-                <div className="profile-stat-card-value">{formatNumber(avgPoints)}</div>
+                <div className="profile-stat-card-value">{/*formatNumber(avgPoints)*/}</div>
                 <div className="profile-stat-card-label">Ø Points / Game</div>
               </div>
               <div className="profile-stat-card profile-stat-card--highlight">
@@ -258,7 +258,7 @@ const Profile: React.FC = () => {
               </div>
               <div className="profile-stat-card">
                 <div className="profile-stat-icon">🏆</div>
-                <div className="profile-stat-card-value">{gamesWon} ({winRate}%)</div>
+                <div className="profile-stat-card-value">{/*gamesWon*/} ({/*winRate*/}%)</div>
                 <div className="profile-stat-card-label">Games Won</div>
               </div>
             </div>

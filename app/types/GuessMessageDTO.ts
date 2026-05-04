@@ -1,6 +1,6 @@
 export interface GuessMessageDTO {
     lobbyId: number;
     userId: number;
-    Xcoordinate: number;
-    Ycoordinate: number;
+    xCoordinate: number;
+    yCoordinate: number;
 }

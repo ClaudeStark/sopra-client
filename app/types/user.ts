@@ -16,20 +16,24 @@ export interface LoginPostDTO{
   password: string;
 }
 
-export interface UserScoreboard{
-  totalPoints: number,
-  gamesPlayed: number,
-  gamesWon: number,
-  guessingPrecision: number
+export interface UserScoreboard {
+  totalPoints: number;
+  playedGames: number;
+  playedRounds: number;
+  bestRoundPoints: number;
+  guessingPrecision: number;
 }
 
-export interface MyUserDTO{
+export interface MyUserDTO {
+  userId: number;       // ← neu
+  username: string;
+  email: string;
+  userBio: string;
+  creationDate: Date;
+  isGuest: boolean;     // ← neu
+  isOnline: boolean;    // ← neu
   userScoreboard: UserScoreboard;
-  username: string,
-  email: string,
-  userBio: string,
-  creationDate: Date,
-  friends: UserDTO[]
+  friends: UserDTO[];
 }
 
 export interface UserDTO{
