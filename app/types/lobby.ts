@@ -5,20 +5,29 @@ export interface Lobby {
   lobbyId: number;
   lobbyName: string;
   lobbyCode: string;
-  admin: Admin;
-  rounds: Round[];
+  maxPlayers: number;
+  currentPlayers: number;
   maxRounds: number;
   visibility: "PUBLIC" | "PRIVATE";
   lobbyState: "WAITING" | "IN_GAME" | "FINISHING";
-  currentRound: number;
-  scores: Score[];
-  size: number;
-  users?: UserDTO[];
+}
+
+export interface MyLobbyDTO {
+  lobbyId: number;
+  lobbyName: string;
+  lobbyCode: string;
+  adminId: number;
+  maxPlayers: number;
+  currentPlayers: number;
+  visibility: "PUBLIC" | "PRIVATE";
+  maxRounds: number;
+  lobbyState: "WAITING" | "IN_GAME" | "FINISHING" | "FINISHED";
+  players: UserDTO[];
 }
 
 export interface CreateLobbyPostDTO {
   lobbyName: string;
-  size: number;
+  maxPlayers: number;   // war size
   visibility: "PUBLIC" | "PRIVATE";
   maxRounds: number;
 }

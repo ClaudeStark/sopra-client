@@ -206,7 +206,7 @@ return (
                   </span>
                 </div>
                 <div className="lobby-row-meta">
-                  Host: {lobby.admin?.userId || "Unknown"} | Rounds: {lobby.rounds?.length || 0} | Visibility: {lobby.visibility}
+                  Rounds: {lobby.maxRounds || 0} | Visibility: {lobby.visibility}
                 </div>
               </div>
             </div>
@@ -226,7 +226,7 @@ return (
 
               </div>
               <div className="lobby-row-players">
-                👥 {lobby.size} player{lobby.size !== 1 && "s"}
+                👥 {lobby.currentPlayers} player{lobby.maxPlayers !== 1 && "s"}
               </div>
               <Tooltip title={lobby.lobbyState !== "WAITING" ? "Game already started" : ""}>
                 <Button

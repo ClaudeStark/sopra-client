@@ -1,19 +1,16 @@
 export interface Train {
   currentX: number;
-    currentY: number;
-    trainId: string;
-    timeStamp: number;
-    line: Line;
-    lineOrigin: Station;
-    lineDestination: Station;
-    departureTime: number;
-    arrivalTime: number;
-    lastLeavingStation: Station;
-    nextPendingStation: Station;
-
-  fromStation: Station;
-  toStation: Station;
-  
+  currentY: number;
+  trainId: string;
+  timestamp: number;    // war timeStamp
+  line: Line;
+  lineOrigin: Station;
+  lineDestination: Station;
+  departureTime: number;
+  arrivalTime: number;
+  lastLeavingStation: Station;
+  nextPendingStation: Station;
+  // fromStation und toStation entfernt
 }
 
 export type Station = {

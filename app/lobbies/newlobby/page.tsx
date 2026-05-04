@@ -33,9 +33,8 @@ const NewLobbyPage: React.FC = () => {
 
     const payload = {
       lobbyName: values.lobbyName,
-      size: Number(values.size),
+      maxPlayers: Number(values.maxPlayers),  // war size
       maxRounds: Number(values.maxRounds),
-      // WICHTIG: Boolean zu Enum-String konvertieren
       visibility: values.visibility,
     };
 
@@ -92,7 +91,7 @@ const NewLobbyPage: React.FC = () => {
         </Form.Item>
 
         <Form.Item
-          name="size"
+          name="maxPlayers"
           label="Amount of Players"
           rules={[{ required: true, message: "Please enter the amount of players!" }]}
         >

@@ -106,16 +106,16 @@ export default function RootLayout({
           }}
         >
           <AntdRegistry>
-            <AuthProvider>
-              <WebSocketProvider>
+            <WebSocketProvider>
+              <AuthProvider>
                 <AntdApp>
                   <Navbar />
                   <main className="page-root">
                     {children}
                   </main>
                 </AntdApp>
-              </WebSocketProvider>
-            </AuthProvider>
+              </AuthProvider>
+            </WebSocketProvider>
           </AntdRegistry>
         </ConfigProvider>
       </body>

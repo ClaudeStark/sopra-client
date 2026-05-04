@@ -54,16 +54,13 @@
  *   Local setInterval counts down; sync again on next ROUND_START.
  */
 
-import { use, useEffect, useRef, useState, useCallback } from "react";
+import {  useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useApi } from "@/hooks/useApi";
-import useLocalStorage from "@/hooks/useLocalStorage";
-//import { useWebSocket } from "@/hooks/useWebSocket";
+import { useAuth } from "@/context/AuthContext";
 import { useWebSocket } from "@/context/WebSocketContext";
 import { Message} from "@/types/message";
 import { Train, Station } from "@/types/train";
-import { Round } from "@/types/round";
-import type { MessageType } from "@/types/messageType";
 
 import { Button, message } from "antd";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -79,9 +76,8 @@ const GamePage: React.FC = () => {
   const router    = useRouter();
   const { id: gameId } = useParams<{ id: string }>();
   const apiService = useApi();
-  const { value: token } = useLocalStorage<string>("token", "");
-  const { value: userId } = useLocalStorage<string>("userId", "");//hardcoded for testing, needs to be set later with login
-  const { connect, disconnect, subscribe, publish, isConnected } = useWebSocket();
+    const { token, user } = useAuth();
+    const { connect, disconnect, subscribe, publish, isConnected } = useWebSocket();
 
 
  type GameState = 
@@ -100,21 +96,14 @@ const GamePage: React.FC = () => {
     distance: number;
   }*/
 
-  type GuessMessagePayload = {
-    lobbyId: string;
-    userId: string;
-    token: string;
-    Xcoordinate: number;
-    Ycoordinate: number;
-  }
-
 
   const [messages, setMessages] = useState<Message[]>([]);
 
-  const [gameState,         setGameState]         = useState<GameState | null>("ROUND_IN_PROGRESS");
+  const [gameState,         setGameState]         = useState<GameState | null>("LOADING");
   const [currentTime,         setCurrentTime]         = useState<string>("");
   const [timerActive,        setTimerActive]        = useState<boolean>(true);
   const [secondsRemaining,  setSecondsRemaining]  = useState<number>(45);
+    const secondsRef = useRef<number>(45);  // ← neu
   const [guessCoords,      setGuessCoords]      = useState<[number, number] | null>(null);
   const [guessSubmitted,   setGuessSubmitted]   = useState<boolean>(false);
   const [clickPosition, setClickPosition] = useState<null | [number, number]>(
@@ -125,8 +114,8 @@ const GamePage: React.FC = () => {
   const [arrivalTime, setArrivalTime] = useState<string | null>(null);
   const [currentRound, setCurrentRound] = useState<number | null>(null);
   const [maxRounds, setMaxRounds] = useState<number | null>(null);
-  const [results, setResults] = useState<{roundNumber: number, userResults: UserResult[], train: Train} | null>(null);
-  const [totalResults, setTotalResults] = useState<[{userId: string; score: number}] | null>(null); 
+    const [results, setResults] = useState<{currentRound: number, userResults: UserResult[], train: Train} | null>(null);
+    const [totalResults, setTotalResults] = useState<[{userId: string; score: number}] | null>(null);
   const [stationPins, setStationPins] = useState<[[number, number], [number,number]] | null>(null); //[lat, long]
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -154,13 +143,12 @@ const GamePage: React.FC = () => {
     //convert lat lon to other format
     const [x, y] = latLngToEpsg(lat, lon);
 
-    const payload: GuessMessagePayload = {
-      lobbyId: gameId!,
-      userId: userId!, 
-      token: token,
-      Xcoordinate: x, 
-      Ycoordinate: y 
-  };
+      const payload = {
+          lobbyId: Number(gameId),
+          userId: user!.userId,
+          xCoordinate: x,
+          yCoordinate: y
+      };
 
     console.log("Guess:", payload);
   
@@ -170,10 +158,7 @@ const GamePage: React.FC = () => {
     }
     
     
-    publish(`/app/game/${gameId}/guess`, {
-      type: "GUESS_MESSAGE",
-      payload: payload
-    });
+    publish(`/app/game/${gameId}/guess`, payload);
     setGuessCoords([lat, lon]); // record for later use (e.g. showing pin)
 
     setGuessSubmitted(true);
@@ -197,27 +182,88 @@ const GamePage: React.FC = () => {
   }, [clickPosition, guessSubmitted, handleSubmitGuess]);
 
   // ── Local countdown timer ────────────────────────────────────────────────
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date().toLocaleTimeString());
-      if (gameState === "ROUND_IN_PROGRESS" && timerActive) {
-        setSecondsRemaining((prev) => (prev > 0 ? prev - 1 : 0));
-      }
-      if (secondsRemaining <= 0 && !guessSubmitted) {
-            handleSubmitGuess(); // auto-submit when timer runs out
-            
-          }
-
-    }, 1000);
-    
-    
-    // Clean up the timer when the component unmounts
-    return () => clearInterval(timer);
-    }, [handleSubmitGuess, guessSubmitted]);
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setCurrentTime(new Date().toLocaleTimeString());
+            if (gameState === "ROUND_IN_PROGRESS" && timerActive) {
+                secondsRef.current -= 1;
+                setSecondsRemaining(secondsRef.current);
+                if (secondsRef.current <= 0 && !gameStateRef.current.guessSubmitted) {
+                    gameStateRef.current.handleSubmitGuess();
+                }
+            }
+        }, 1000);
+        return () => clearInterval(timer);
+    }, [gameState, timerActive]);
 
   
   // ── WebSocket – real-time game events ────────────────────────────────────
-  useEffect(() => {
+
+
+    const handleMessage = useCallback((message: GameMessage) => {
+        const {
+            clickPosition: currentClick,
+            guessSubmitted: alreadySubmitted,
+            handleSubmitGuess: submitFn
+        } = gameStateRef.current;
+
+        switch (message.type) {
+            case "ROUND_START":
+                secondsRef.current = 45;
+                console.log("Round started:", message);
+                setGuessCoords(null);
+                setGuessSubmitted(false);
+                setClickPosition(null);
+                setCurrentTrain(message.payload.train);
+                setDepartureTime(epochToTime(message.payload.train.departureTime));
+                setArrivalTime(epochToTime(message.payload.train.arrivalTime));
+                const origin = message.payload.train.lineOrigin;
+                const destination = message.payload.train.lineDestination;
+                const originCoords = epsgToLatLng(origin.xCoordinate, origin.yCoordinate);
+                const destCoords = epsgToLatLng(destination.xCoordinate, destination.yCoordinate);
+                setStationPins([originCoords, destCoords]);
+                setCurrentRound(message.payload.roundNumber);
+                setMaxRounds(message.payload.maxRounds);
+                setGameState("ROUND_IN_PROGRESS");
+                setSecondsRemaining(45);
+                setTimerActive(true);
+                break;
+
+            case "ROUND_END":
+                console.log("Round end received");
+                console.log("Current version in REF:", { currentClick, alreadySubmitted });
+                if (currentClick && !alreadySubmitted) {
+                    console.log("Auto-Submit after ROUND_END");
+                    submitFn();
+                }
+                setTimerActive(false);
+                break;
+
+            case "SCORES":
+                console.log("Scores updated:", message);
+                const userResults = message.payload.userResults.map((result: UserResult) => {
+                    const [lat, lng] = epsgToLatLng(result.xCoordinate, result.yCoordinate);
+                    return {
+                        ...result,
+                        xCoordinate: lat,
+                        yCoordinate: lng,
+                    };
+                });
+                setResults({
+                    ...message.payload,
+                    userResults,
+                });
+                const trainPayload = message.payload.train;
+                const [trainLat, trainLon] = epsgToLatLng(trainPayload.currentX, trainPayload.currentY);
+                const train = { ...trainPayload, currentX: trainLat, currentY: trainLon };
+                setCurrentTrain(train);
+                setGameState("BETWEEN_ROUNDS");
+                break;
+        }
+    }, [guessCoords, guessSubmitted, handleSubmitGuess, gameId, router]);
+
+
+    useEffect(() => {
     if (!isConnected) return;
 
     const subscription = subscribe<GameMessage>(`/topic/game/${gameId}`, (update) => {
@@ -227,13 +273,7 @@ const GamePage: React.FC = () => {
     });
 
     // Send initial ready message
-    publish(`/app/game/${gameId}/ready`, {
-      type: "READY_FOR_NEXT_ROUND",
-      payload: {
-        userId: userId,
-        isReady: true
-      }
-    });
+    publish(`/app/game/${gameId}/ready`, {});
 
     console.log("Sent initial READY_FOR_NEXT_ROUND message");
 
@@ -241,91 +281,8 @@ const GamePage: React.FC = () => {
       if (subscription) subscription.unsubscribe();
       console.log("Unsubscribed from websockets topic")
     };
-  }, [isConnected, subscribe, publish, gameId, userId]);  
+  }, [isConnected, subscribe, publish, gameId]);
 
-  const handleMessage = useCallback((message: GameMessage) => {
-    const {
-      clickPosition: currentClick,
-      guessSubmitted: alreadySubmitted,
-      handleSubmitGuess: submitFn
-    } = gameStateRef.current;
-
-    switch (message.type) {
-      case "ROUND_START":
-        console.log("Round started:", message);
-        setGuessCoords(null);
-        setGuessSubmitted(false);
-        setClickPosition(null);
-        setCurrentTrain(message.payload.train);
-        setDepartureTime(epochToTime(message.payload.train.departureTime));
-        setArrivalTime(epochToTime(message.payload.train.arrivalTime));
-        //get coordinates for origin and destination station
-        const origin = message.payload.train.lineOrigin;
-        const destination = message.payload.train.lineDestination;
-        const originCoords = epsgToLatLng(origin.xCoordinate, origin.yCoordinate)
-        const destCoords = epsgToLatLng(destination.xCoordinate, destination.yCoordinate)
-        setStationPins([originCoords, destCoords]);
-
-
-        setCurrentRound(message.payload.roundNumber);
-        setMaxRounds(message.payload.maxRounds);
-        setGameState("ROUND_IN_PROGRESS");
-        //start the local timer for 45 seconds
-        setSecondsRemaining(45);
-        setTimerActive(true);
-
-        break;
-
-      case "ROUND_END":
-        console.log("Round end received");
-        console.log("Current version in REF:", { currentClick, alreadySubmitted });
-
-        if (currentClick && !alreadySubmitted) {
-          console.log("Auto-Submit after ROUND_END");
-          submitFn();
-        }
-        setTimerActive(false);
-        break;
-      
-      case "SCORES":
-        console.log("Scores updated:", message);
-        //convert user guess coordinates
-        const userResults = message.payload.userResults.map((result: UserResult) => {
-          const [lat, lng] = epsgToLatLng(result.xCoordinate, result.yCoordinate);
-          return {
-            ...result,
-            xCoordinate: lat,
-            yCoordinate: lng,
-          };
-        });
-
-        setResults({
-          ...message.payload,
-          userResults,
-        }); //total results contained in UserResult
-        
-        //convert train coordinates
-        const train = message.payload.train;
-
-        const [lat, lon]= epsgToLatLng(train.currentX, train.currentY)
-
-        train.currentX = lat;
-        train.currentY = lon;
-
-        setCurrentTrain(train)
-        setGameState("BETWEEN_ROUNDS");
-        break;
-
-        /*
-        case "GAME_END":
-        setGameState("GAME_ENDED");
-        // Teardown if needed
-        router.push("/game/{gameId}/leaderboard");
-        break;
-        */
-    }
-
-  }, [guessCoords, guessSubmitted, handleSubmitGuess, gameId, router]);
 
 
  

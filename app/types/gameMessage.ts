@@ -8,9 +8,9 @@ export interface RoundStartDTO {
 }
 
 export interface ResultDTO {
-    roundNumber:number;
-    userResults:UserResult[];
-    train:Train;
+    currentRound: number;  // war roundNumber
+    userResults: UserResult[];
+    train: Train;
 }
 
 export type GameMessage =
