@@ -16,44 +16,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const { connect, disconnect } = useWebSocket();
 
-    const fetchUser = async (token: string, userId: number) => {
+    const logout = () => {
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
+        setToken(null);
+        setUser(null);
+        disconnect();
+        router.push("/login");
+    };
+
+    const fetchUser = async (token: string, userId: number, isInitial = false) => {
         try {
             const userData = await apiService.get<MyUserDTO | UserDTO>(
                 `/users/${userId}`,
-                { headers: { token: token } });
+                { headers: { token: token } }
+            );
             if (userData && "email" in userData) {
-                setUser({
-                    userId: userId,
-                    username: userData.username
-                });
+                setUser({ userId, username: userData.username });
             } else {
-                logout();
+                if (!isInitial) logout();
             }
         } catch (e) {
-            logout();
+            if (!isInitial) logout();
         } finally {
             setIsLoading(false);
         }
     };
 
     useEffect(() => {
-        if (typeof window === "undefined") return;
-        const rawToken = localStorage.getItem("token");
-        const rawUserId = localStorage.getItem("userId");
-        if (rawToken && rawUserId) {
-            try {
-                const parsedToken = JSON.parse(rawToken);
-                const parsedUserId = JSON.parse(rawUserId);
-                setToken(parsedToken);
-                fetchUser(parsedToken, Number(parsedUserId));
-                connect(String(parsedUserId), parsedToken);
-            } catch (e) {
-                console.error("Fehler beim Parsen der Auth-Daten", e);
-                logout();
+        const init = async () => {
+            if (typeof window === "undefined") return;
+            const rawToken = localStorage.getItem("token");
+            const rawUserId = localStorage.getItem("userId");
+            if (rawToken && rawUserId) {
+                try {
+                    const parsedToken = JSON.parse(rawToken);
+                    const parsedUserId = JSON.parse(rawUserId);
+                    await fetchUser(parsedToken, Number(parsedUserId), true);
+                    setToken(parsedToken);
+                    connect(String(parsedUserId), parsedToken);
+                } catch (e) {
+                    console.error("Fehler beim Parsen der Auth-Daten", e);
+                    setIsLoading(false);
+                }
+            } else {
+                setIsLoading(false);
             }
-        } else {
-            setIsLoading(false);
-        }
+        };
+        init();
     }, []);
 
     const login = async (token: string, userId: number) => {
@@ -62,15 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setToken(token);
         await fetchUser(token, userId);
         connect(String(userId), token);
-    };
-
-    const logout = () => {
-        localStorage.removeItem("token");
-        localStorage.removeItem("userId");
-        setToken(null);
-        setUser(null);
-        disconnect();
-        router.push("/login");
     };
 
     return (

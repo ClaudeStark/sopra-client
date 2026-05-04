@@ -90,7 +90,7 @@ const LobbiesPage: React.FC = () => {
 
     // setHasCredentials(!!token && !!userId);
 
-  }, [apiService, token]);
+  }, [apiService]);
 
 
   const handleCreateNewLobby = () => {
@@ -141,19 +141,6 @@ const LobbiesPage: React.FC = () => {
     }
   }
 
-
-
-  // const createGuestCredentials = () => {
-  //   const values: RegisterPostDTO = {
-  //     username: "",
-  //     email: "",
-  //     password: "",
-  //     isGuest: true,
-  //     userBio: ""
-  //   };
-
-  //   return values;
-  // }
 
 
 

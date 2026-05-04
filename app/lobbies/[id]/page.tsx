@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useApi } from "@/hooks/useApi";
 import { useWebSocket } from "@/context/WebSocketContext";
@@ -14,11 +14,10 @@ const LobbyWaitPage: React.FC = () => {
   const params = useParams();
   const lobbyId = Number(params.id);
   const apiService = useApi();
-  const webSocket = useWebSocket();
+  const { isConnected, connect, subscribe, publish } = useWebSocket();
   const { message } = App.useApp();
   const { user: currentUser, token } = useAuth();
   const [lobby, setLobby] = useState<MyLobbyDTO | null>(null);
-  const intentionalDisconnect = useRef<boolean>(false);
 
   // ── Initial fetch ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -26,14 +25,15 @@ const LobbyWaitPage: React.FC = () => {
 
     const fetchLobby = async () => {
       try {
+        console.log(`[LobbyWait] Fetching lobby ${lobbyId}...`);
         const response = await apiService.get<MyLobbyDTO>(
             `/lobbies/${lobbyId}`,
             { headers: { userId: currentUser.userId.toString(), token: token } }
         );
-        console.log(response);
+        console.log(`[LobbyWait] Lobby fetched:`, response);
         setLobby(response);
       } catch (e) {
-        console.error("Fetch error: ", e);
+        console.error("[LobbyWait] Fetch error:", e);
         router.push("/lobbies");
       }
     };
@@ -42,46 +42,56 @@ const LobbyWaitPage: React.FC = () => {
 
   // ── Reconnect bei Bedarf ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!webSocket.isConnected && token && currentUser) {
-      webSocket.connect(currentUser.userId.toString(), token);
+    if (!isConnected && token && currentUser) {
+      console.log("[LobbyWait] WebSocket not connected, reconnecting...");
+      connect(currentUser.userId.toString(), token);
     }
-  }, [webSocket.isConnected, token, currentUser, webSocket]);
+  }, [isConnected, token, currentUser, connect]);
 
   // ── WebSocket subscribe ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!webSocket.isConnected || !lobbyId) return;
+    if (!isConnected || !lobbyId) {
+      console.log(`[LobbyWait] Not subscribing — isConnected: ${isConnected}, lobbyId: ${lobbyId}`);
+      return;
+    }
 
-    const subscription = webSocket.subscribe<LobbyMessage>(
+    console.log(`[LobbyWait] Subscribing to /topic/lobby/${lobbyId}`);
+    const subscription = subscribe<LobbyMessage>(
         `/topic/lobby/${lobbyId}`,
         (msg) => {
-          console.log(msg);
+          console.log(`[LobbyWait] WS message received:`, msg);
           if (msg.type === "LOBBY_STATE") {
+            console.log(`[LobbyWait] Lobby state updated:`, msg.payload);
             setLobby(msg.payload);
           } else if (msg.type === "GAME_START") {
+            console.log(`[LobbyWait] Game started! Navigating to /game/${lobbyId}`);
             router.push(`/game/${lobbyId}`);
           }
         }
     );
 
-    return () => subscription?.unsubscribe();
-  }, [webSocket.isConnected, lobbyId, router, webSocket]);
+    return () => {
+      console.log(`[LobbyWait] Unsubscribing from /topic/lobby/${lobbyId}`);
+      subscription?.unsubscribe();
+    };
+  }, [isConnected, lobbyId, router, subscribe]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
   const handleStartGame = () => {
-    if (!webSocket.isConnected) {
+    if (!isConnected) {
       message.warning("Verbindung wird noch aufgebaut...");
       return;
     }
     if (!currentUser || !token) return;
-    webSocket.publish(`/app/lobby/${lobbyId}/start`, {});
+    console.log(`[LobbyWait] Publishing start game for lobby ${lobbyId}`);
+    publish(`/app/lobby/${lobbyId}/start`, {});
   };
 
   const handleLeave = () => {
     if (!currentUser || !token) return;
-    webSocket.publish(`/app/lobby/${lobbyId}/leave`, {});
-    intentionalDisconnect.current = true;
+    console.log(`[LobbyWait] Leaving lobby ${lobbyId}`);
+    publish(`/app/lobby/${lobbyId}/leave`, {});
     router.push("/lobbies");
-    webSocket.disconnect();
   };
 
   const isHost = lobby && currentUser ? lobby.adminId === currentUser.userId : false;
@@ -154,6 +164,7 @@ const LobbyWaitPage: React.FC = () => {
                     type="primary"
                     className="btn-full wait-start-btn"
                     onClick={handleStartGame}
+                    disabled={!isConnected}
                 >
                   ▶ Start Game ({lobby.maxRounds || 0} rounds)
                 </Button>

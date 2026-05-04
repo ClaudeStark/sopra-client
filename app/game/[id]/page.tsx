@@ -1,210 +1,112 @@
 "use client";
 
-/**
- * Game Screen  –  route: /game/[gameId]
- *
- * Design ref: image5.png
- * ─────────────────────────────────────────────────────────────────────────────
- * Layout (no standard navbar – uses compact game navbar):
- *
- *   <nav className="navbar navbar--game">
- *     brand logo  |  (centre: hidden by design)  |  "Exit Game" link
- *   </nav>
- *
- *   <div className="train-bar">
- *     .train-bar-line-badge   →  "S12"
- *     .train-bar-route        →  "From Brugg AG → To Zürich HB"
- *     .train-bar-times        →  "Dep 12:02 · Arr 12:38"
- *     .train-bar-round        →  "Round 1/5"  +  .train-bar-timer "28s"
- *   </div>
- *
- *   <div className="game-question-bar">
- *     .game-question-bar-dot   (pulsing red dot)
- *     "Current time: 12:21 – Where is the train NOW?"
- *   </div>
- *
- *   <div className="page-game">          ← fills remaining viewport height
- *     <div className="map-container">   ← React-Leaflet / Google Maps mounts here
- *       <div className="game-hint-bar">Click on the map to place your guess</div>
- *     </div>
- *   </div>
- *
- * Classnames (all in globals.css):
- *   navbar, navbar--game
- *   train-bar, train-bar-line-badge, train-bar-route, train-bar-route-arrow,
- *   train-bar-times, train-bar-round, train-bar-timer
- *   game-question-bar, game-question-bar-dot
- *   page-game, map-container, game-hint-bar
- *
- * WebSocket:
- *   Subscribe to /topic/game/{gameId}  (via LobbyService per activity diagram)
- *   Expected message types (WsMessageType):
- *     "ROUND_START"   →  new round begins; update train info + reset timer
- *     "ROUND_END"     →  show result overlay; display scores
- *     "SCORE_UPDATE"  →  live leaderboard update mid-round (optional)
- *     "GAME_END"      →  navigate to final leaderboard / back to lobby
- *
- * Data flow:
- *   GET /game/{gameId}              →  initial game state (round, train, timer)
- *   POST /game/{gameId}/guess       →  submit lat/lng after map click
- *   User clicks map                 →  capture coordinates, show pin, enable submit
- *
- * Timer:
- *   Driven by secondsRemaining from WS "ROUND_START" message.
- *   Local setInterval counts down; sync again on next ROUND_START.
- */
-
-import {  useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { useApi } from "@/hooks/useApi";
 import { useAuth } from "@/context/AuthContext";
 import { useWebSocket } from "@/context/WebSocketContext";
-import { Message} from "@/types/message";
-import { Train, Station } from "@/types/train";
-
-import { Button, message } from "antd";
+import { Train } from "@/types/train";
+import { Button } from "antd";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { RMap, RMarker } from "maplibre-react-components";
 import { MapLayerMouseEvent, MapLayerTouchEvent } from "maplibre-gl";
 import RoundOverview from "./RoundOverview";
 import LoadingScreen from "./LoadingScreen";
 import { latLngToEpsg, epsgToLatLng } from "./coordinateConverter";
-import {GameMessage, ResultDTO} from "@/types/gameMessage";
-import {UserResult} from "@/types/user";
+import { GameMessage } from "@/types/gameMessage";
+import { UserResult } from "@/types/user";
 
 const GamePage: React.FC = () => {
-  const router    = useRouter();
-  const { id: gameId } = useParams<{ id: string }>();
-  const apiService = useApi();
-    const { token, user } = useAuth();
-    const { connect, disconnect, subscribe, publish, isConnected } = useWebSocket();
+    const router = useRouter();
+    const { id: gameId } = useParams<{ id: string }>();
+    const { user } = useAuth();
+    const { subscribe, publish, isConnected } = useWebSocket();
 
+    type GameState =
+        | "ROUND_IN_PROGRESS"
+        | "LOADING"
+        | "BETWEEN_ROUNDS"
+        | "GAME_ENDED";
 
- type GameState = 
-    | "ROUND_IN_PROGRESS"
-    | "LOADING"
-    | "BETWEEN_ROUNDS"
-    | "GAME_ENDED"
-  ;
+    const [gameState, setGameState] = useState<GameState | null>("LOADING");
+    const [currentTime, setCurrentTime] = useState<string>("");
+    const [timerActive, setTimerActive] = useState<boolean>(true);
+    const [secondsRemaining, setSecondsRemaining] = useState<number>(45);
+    const secondsRef = useRef<number>(45);
+    const [guessCoords, setGuessCoords] = useState<[number, number] | null>(null);
+    const [guessSubmitted, setGuessSubmitted] = useState<boolean>(false);
+    const [clickPosition, setClickPosition] = useState<null | [number, number]>(null);
+    const [currentTrain, setCurrentTrain] = useState<Train | null>(null);
+    const [departureTime, setDepartureTime] = useState<string | null>(null);
+    const [arrivalTime, setArrivalTime] = useState<string | null>(null);
+    const [currentRound, setCurrentRound] = useState<number | null>(null);
+    const [maxRounds, setMaxRounds] = useState<number | null>(null);
+    const [results, setResults] = useState<{ currentRound: number; userResults: UserResult[]; train: Train } | null>(null);
+    const [stationPins, setStationPins] = useState<[[number, number], [number, number]] | null>(null);
+    const [mounted] = useState(typeof window !== "undefined");
 
-  /*type UserResult = {
-    userId: string;
-    score: string;
-    totalscore: string;
-    xCoordinate: number;
-    yCoordinate: number;
-    distance: number;
-  }*/
-
-
-  const [messages, setMessages] = useState<Message[]>([]);
-
-  const [gameState,         setGameState]         = useState<GameState | null>("LOADING");
-  const [currentTime,         setCurrentTime]         = useState<string>("");
-  const [timerActive,        setTimerActive]        = useState<boolean>(true);
-  const [secondsRemaining,  setSecondsRemaining]  = useState<number>(45);
-    const secondsRef = useRef<number>(45);  // ← neu
-  const [guessCoords,      setGuessCoords]      = useState<[number, number] | null>(null);
-  const [guessSubmitted,   setGuessSubmitted]   = useState<boolean>(false);
-  const [clickPosition, setClickPosition] = useState<null | [number, number]>(
-    null,
-  );//[long, lat]
-  const [currentTrain, setCurrentTrain] = useState<Train | null>(null);
-  const [departureTime, setDepartureTime] = useState<string | null>(null);
-  const [arrivalTime, setArrivalTime] = useState<string | null>(null);
-  const [currentRound, setCurrentRound] = useState<number | null>(null);
-  const [maxRounds, setMaxRounds] = useState<number | null>(null);
-    const [results, setResults] = useState<{currentRound: number, userResults: UserResult[], train: Train} | null>(null);
-    const [totalResults, setTotalResults] = useState<[{userId: string; score: number}] | null>(null);
-  const [stationPins, setStationPins] = useState<[[number, number], [number,number]] | null>(null); //[lat, long]
-
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const epochToTime = (epoch: number | null) : string => {
-    if (!epoch) {
-      return "";
-    }
-    return new Date(epoch).toLocaleTimeString('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' });
-  }
-
-  //prevent hidration error
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+    const epochToTime = (epoch: number | null): string => {
+        if (!epoch) return "";
+        return new Date(epoch).toLocaleTimeString("de-CH", {
+            timeZone: "Europe/Zurich",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    };
 
     // ── Guess submission ─────────────────────────────────────────────────────
-  const handleSubmitGuess = async () => {
-    if (!clickPosition) return;
-
-    const [lon, lat] = clickPosition;
-
-    //convert lat lon to other format
-    const [x, y] = latLngToEpsg(lat, lon);
-
-      const payload = {
-          lobbyId: Number(gameId),
-          userId: user!.userId,
-          xCoordinate: x,
-          yCoordinate: y
-      };
-
-    console.log("Guess:", payload);
-  
-    if (!isConnected) {
-      console.warn("WebSocket not connected yet");
-      return;
-    }
-    
-    
-    publish(`/app/game/${gameId}/guess`, payload);
-    setGuessCoords([lat, lon]); // record for later use (e.g. showing pin)
-
-    setGuessSubmitted(true);
-    console.log("Guess submitted:", payload);
-  }
-
-
-  // added for fix with guess after time is up
-  const gameStateRef = useRef({
-    clickPosition,
-    guessSubmitted,
-    handleSubmitGuess
-  })
-
-  useEffect(() => {
-    gameStateRef.current = {
-      clickPosition,
-      guessSubmitted,
-      handleSubmitGuess
+    const handleSubmitGuess = async () => {
+        if (!clickPosition) return;
+        const [lon, lat] = clickPosition;
+        const [x, y] = latLngToEpsg(lat, lon);
+        const payload = {
+            lobbyId: Number(gameId),
+            userId: user!.userId,
+            xCoordinate: x,
+            yCoordinate: y,
+        };
+        console.log("Guess:", payload);
+        if (!isConnected) {
+            console.warn("WebSocket not connected yet");
+            return;
+        }
+        publish(`/app/game/${gameId}/guess`, payload);
+        setGuessCoords([lat, lon]);
+        setGuessSubmitted(true);
+        console.log("Guess submitted:", payload);
     };
-  }, [clickPosition, guessSubmitted, handleSubmitGuess]);
 
-  // ── Local countdown timer ────────────────────────────────────────────────
+    const gameStateRef = useRef({ clickPosition, guessSubmitted, handleSubmitGuess });
     useEffect(() => {
-        const timer = setInterval(() => {
+        gameStateRef.current = { clickPosition, guessSubmitted, handleSubmitGuess };
+    }, [clickPosition, guessSubmitted, handleSubmitGuess]);
+
+    // ── Uhrzeit-Interval ────────────────────────────────────────────────────
+    useEffect(() => {
+        const clock = setInterval(() => {
             setCurrentTime(new Date().toLocaleTimeString());
-            if (gameState === "ROUND_IN_PROGRESS" && timerActive) {
-                secondsRef.current -= 1;
-                setSecondsRemaining(secondsRef.current);
-                if (secondsRef.current <= 0 && !gameStateRef.current.guessSubmitted) {
-                    gameStateRef.current.handleSubmitGuess();
-                }
+        }, 1000);
+        return () => clearInterval(clock);
+    }, []);
+
+    // ── Timer-Interval — nur während Runde ──────────────────────────────────
+    useEffect(() => {
+        if (gameState !== "ROUND_IN_PROGRESS" || !timerActive) return;
+        const timer = setInterval(() => {
+            secondsRef.current -= 1;
+            setSecondsRemaining(secondsRef.current);
+            if (secondsRef.current <= 0 && !gameStateRef.current.guessSubmitted) {
+                gameStateRef.current.handleSubmitGuess();
             }
         }, 1000);
         return () => clearInterval(timer);
     }, [gameState, timerActive]);
 
-  
-  // ── WebSocket – real-time game events ────────────────────────────────────
-
-
+    // ── WebSocket message handler ────────────────────────────────────────────
     const handleMessage = useCallback((message: GameMessage) => {
         const {
             clickPosition: currentClick,
             guessSubmitted: alreadySubmitted,
-            handleSubmitGuess: submitFn
+            handleSubmitGuess: submitFn,
         } = gameStateRef.current;
 
         switch (message.type) {
@@ -231,7 +133,6 @@ const GamePage: React.FC = () => {
 
             case "ROUND_END":
                 console.log("Round end received");
-                console.log("Current version in REF:", { currentClick, alreadySubmitted });
                 if (currentClick && !alreadySubmitted) {
                     console.log("Auto-Submit after ROUND_END");
                     submitFn();
@@ -243,16 +144,9 @@ const GamePage: React.FC = () => {
                 console.log("Scores updated:", message);
                 const userResults = message.payload.userResults.map((result: UserResult) => {
                     const [lat, lng] = epsgToLatLng(result.xCoordinate, result.yCoordinate);
-                    return {
-                        ...result,
-                        xCoordinate: lat,
-                        yCoordinate: lng,
-                    };
+                    return { ...result, xCoordinate: lat, yCoordinate: lng };
                 });
-                setResults({
-                    ...message.payload,
-                    userResults,
-                });
+                setResults({ ...message.payload, userResults });
                 const trainPayload = message.payload.train;
                 const [trainLat, trainLon] = epsgToLatLng(trainPayload.currentX, trainPayload.currentY);
                 const train = { ...trainPayload, currentX: trainLat, currentY: trainLon };
@@ -260,189 +154,130 @@ const GamePage: React.FC = () => {
                 setGameState("BETWEEN_ROUNDS");
                 break;
         }
-    }, [guessCoords, guessSubmitted, handleSubmitGuess, gameId, router]);
+    }, []);
 
-
+    // ── WebSocket subscribe ──────────────────────────────────────────────────
+    const readySent = useRef(false);
     useEffect(() => {
-    if (!isConnected) return;
+        if (!isConnected) return;
 
-    const subscription = subscribe<GameMessage>(`/topic/game/${gameId}`, (update) => {
-      console.log("Received WS message:", update);
-      setMessages((prev) => [...prev, update]);
-      handleMessage(update);
-    });
+        const subscription = subscribe<GameMessage>(`/topic/game/${gameId}`, (update) => {
+            console.log("Received WS message:", update);
+            handleMessage(update);
+        });
 
-    // Send initial ready message
-    publish(`/app/game/${gameId}/ready`, {});
+        if (!readySent.current) {
+            publish(`/app/game/${gameId}/ready`, {});
+            readySent.current = true;
+            console.log("Sent initial READY_FOR_NEXT_ROUND message");
+        }
 
-    console.log("Sent initial READY_FOR_NEXT_ROUND message");
+        return () => {
+            if (subscription) subscription.unsubscribe();
+            console.log("Unsubscribed from websockets topic");
+        };
+    }, [isConnected, subscribe, publish, gameId]);
 
-    return () => {
-      if (subscription) subscription.unsubscribe();
-      console.log("Unsubscribed from websockets topic")
-    };
-  }, [isConnected, subscribe, publish, gameId]);
+    // ── Map click handlers ───────────────────────────────────────────────────
+    const handleMapClick = (e: MapLayerMouseEvent) => setClickPosition(e.lngLat.toArray());
+    const handleMapClickTouch = (e: MapLayerTouchEvent) => setClickPosition(e.lngLat.toArray());
 
+    // ── Render ───────────────────────────────────────────────────────────────
+    const train = currentTrain;
 
+    if (gameState === "ROUND_IN_PROGRESS") {
+        return (
+            <>
+                <nav className="navbar navbar--game">
+                    <span style={{ marginLeft: "auto" }}>
+                        <Button className="btn-ghost-muted" onClick={() => router.push("/lobbies")}>
+                            Exit Game
+                        </Button>
+                    </span>
+                </nav>
 
- 
-  
-  // ── Map click handler (passed from RMap component) ─────────────────────
-  const handleMapClick = (e: MapLayerMouseEvent) => {
-    setClickPosition(e.lngLat.toArray());
-
-    
-  };
-  const handleMapClickTouch = (e: MapLayerTouchEvent) => {
-    setClickPosition(e.lngLat.toArray());
-    
-  };
-
-  // ── Render ───────────────────────────────────────────────────────────────
-  const train = currentTrain;
-  
-  if (gameState === "ROUND_IN_PROGRESS") {
-    return (
-  
-  // in-round Map view with train info bar, question, and map interaction
-
-    <>
-      {/* ── Compact game navbar ─────────────────────────────────────────── */}
-      <nav className="navbar navbar--game">
-        {/* TODO: logo mark (white variant) */}
-        <span style={{ marginLeft: "auto" }}>
-          <Button
-            className="btn-ghost-muted"
-            onClick={() => router.push("/lobbies")}
-          >
-            Exit Game
-          </Button>
-        </span>
-      </nav>
-
-      {/* ── Red train-info bar ──────────────────────────────────────────── */}
-      <div className="train-bar">
-        {/* Line badge e.g. "S12" */}
-        <span className="train-bar-line-badge">
-          {train?.line.name ?? "—"}
-        </span>
-
-        {/* Route */}
-        <span className="train-bar-route">
-          From {train?.lineOrigin.stationName}
-          <span className="train-bar-route-arrow"> → </span>
-          To {train?.lineDestination.stationName}
-        </span>
-
-        {/* Times */}
-        <span className="train-bar-times">
-          Dep {departureTime} · Arr {arrivalTime}
-        </span>
-
-        {/* Round indicator + countdown */}
-        <div className="train-bar-round">
-          <span>
-            Round {currentRound}/{maxRounds}
-          </span>
-          <span className="train-bar-timer">{secondsRemaining}s</span>
-        </div>
-      </div>
-
-      {/* ── Question bar ────────────────────────────────────────────────── */}
-      <div className="game-question-bar">
-        <span className="game-question-bar-dot" />
-        Current time: {currentTime} – Where is the train NOW?
-      </div>
-
-      {/* ── Map area ────────────────────────────────────────────────────── */}
-      <div className="page-game">
-        <div className="map-container" style={{ height: "100vh" }}>
-          {mounted && (
-          <RMap
-            minZoom={6}
-            initialCenter={[7.4707, 46.95]}
-            initialZoom={8}
-            mapStyle="https://openmaptiles.geo.data.gouv.fr/styles/osm-bright/style.json"
-            onClick={handleMapClick}
-            onTouchEnd={handleMapClickTouch}
-            >
-            {
-              clickPosition && (<RMarker longitude={clickPosition[0]} latitude={clickPosition[1]}/>) 
-            }
-            {/*Markers for origin and destination stations*/}
-            {
-              stationPins?.map((station,idx) => (
-                <RMarker key={`station-${idx}-${station[0]}-${station[1]}`} longitude={station[1]} latitude={station[0]} >
-              <div style={{
-              width: '20px',
-              height: '20px',
-              backgroundColor: 'green',
-              borderRadius: '50%',
-              border: '2px solid white',
-              cursor: 'pointer'
-            }} />
-                </RMarker>
-              ))
-            }
-            {/* Floating hint / submit button at map bottom */}
-            {clickPosition && !guessSubmitted && !guessCoords && (
-              <div className="submit-guess-container">
-                <div className="card">
-                  <span className="guess-coordinates">{clickPosition[1].toFixed(3)}°N, {clickPosition[0].toFixed(3)}°E</span>
+                <div className="train-bar">
+                    <span className="train-bar-line-badge">{train?.line.name ?? "—"}</span>
+                    <span className="train-bar-route">
+                        From {train?.lineOrigin.stationName}
+                        <span className="train-bar-route-arrow"> → </span>
+                        To {train?.lineDestination.stationName}
+                    </span>
+                    <span className="train-bar-times">
+                        Dep {departureTime} · Arr {arrivalTime}
+                    </span>
+                    <div className="train-bar-round">
+                        <span>Round {currentRound}/{maxRounds}</span>
+                        <span className="train-bar-timer">{secondsRemaining}s</span>
+                    </div>
                 </div>
-                <Button type="primary" onClick={handleSubmitGuess}>
-                  Confirm Guess
-                </Button>
-              </div>
-              )}
-              {
-                /*if guessSubmitted, indicate to user to wait*/
-              }
-            </RMap>)}
-          {/*
-            TODO: Mount map component here (React-Leaflet recommended).
-            Pass onMapClick={handleMapClick} so the page captures coordinates.
-            The map component should:
-              - Render a Switzerland-centred tile map
-              - Place a draggable pin when the user clicks
-              - Show the correct-position pin after ROUND_END WS message
-          */}
 
-          
-          {/*!guessSubmitted ? (
-            <div className="game-hint-bar">
-              {guessCoords
-                ?  (
-                  <Button type="primary" onClick={handleSubmitGuess}>
-                    Submit Guess
-                  </Button>
-                )
-                : "Click on the map to place your guess"}
-            </div>
-          ) : (
-            <div className="game-hint-bar">
-              Guess submitted – waiting for other players…
-            </div>
-          )*/}
-        </div>
-      </div>
-    </>) }
-    
-    //pass the necessary arguments (actual train pos, scores & guesses of players) as props to the round overview component
-    else if (gameState === "BETWEEN_ROUNDS") {
-      return <RoundOverview 
+                <div className="game-question-bar">
+                    <span className="game-question-bar-dot" />
+                    {currentTime && `Current time: ${currentTime} – Where is the train NOW?`}
+                </div>
+
+                <div className="page-game">
+                    <div className="map-container" style={{ height: "100vh" }}>
+                        {mounted && (
+                            <RMap
+                                minZoom={6}
+                                initialCenter={[7.4707, 46.95]}
+                                initialZoom={8}
+                                mapStyle="https://openmaptiles.geo.data.gouv.fr/styles/osm-bright/style.json"
+                                onClick={handleMapClick}
+                                onTouchEnd={handleMapClickTouch}
+                            >
+                                {clickPosition && (
+                                    <RMarker longitude={clickPosition[0]} latitude={clickPosition[1]} />
+                                )}
+                                {stationPins?.map((station, idx) => (
+                                    <RMarker
+                                        key={`station-${idx}-${station[0]}-${station[1]}`}
+                                        longitude={station[1]}
+                                        latitude={station[0]}
+                                    >
+                                        <div style={{
+                                            width: "20px",
+                                            height: "20px",
+                                            backgroundColor: "green",
+                                            borderRadius: "50%",
+                                            border: "2px solid white",
+                                            cursor: "pointer",
+                                        }} />
+                                    </RMarker>
+                                ))}
+                                {clickPosition && !guessSubmitted && (
+                                    <div className="submit-guess-container">
+                                        <div className="card">
+                                            <span className="guess-coordinates">
+                                                {clickPosition[1].toFixed(3)}°N, {clickPosition[0].toFixed(3)}°E
+                                            </span>
+                                        </div>
+                                        <Button type="primary" onClick={handleSubmitGuess}>
+                                            Confirm Guess
+                                        </Button>
+                                    </div>
+                                )}
+                            </RMap>
+                        )}
+                    </div>
+                </div>
+            </>
+        );
+    } else if (gameState === "BETWEEN_ROUNDS") {
+        return (
+            <RoundOverview
                 train={currentTrain}
                 results={results?.userResults || []}
                 currentRound={currentRound}
                 maxRounds={maxRounds}
-                publish={publish}/>
-                
+                publish={publish}
+            />
+        );
+    } else {
+        return <LoadingScreen />;
     }
-    else {
-      return <LoadingScreen />;
-    }
-
-  
 };
 
 export default GamePage;

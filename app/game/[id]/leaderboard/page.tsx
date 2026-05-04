@@ -5,36 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { useApi } from "@/hooks/useApi";
 import { useAuth } from "@/context/AuthContext";
 import { Button, App } from "antd";
-
-interface Score {
-    userId: number;
-    points: number;
-}
-
-interface GuessMessageDTO {
-    lat: number;
-    lng: number;
-}
-
-interface UserGameStatus {
-    isReady: boolean;
-}
-
-interface Round {
-    roundNumber: number;
-    train: Record<string, unknown>;
-    guessMessages: Record<string, GuessMessageDTO>;
-    allUserGameStatuses: Record<string, UserGameStatus>;
-    scores: Record<string, Score>;
-    distances: Record<string, number>;
-}
-
-interface GameResultDTO {
-    gameId: number;
-    rounds: Round[];
-    scores: Score[];
-    usernames: Record<string, string>; // userId -> username
-}
+import { GameResultDTO } from "@/types/gameResult";
 
 const MEDAL = ["🥇", "🥈", "🥉"];
 
@@ -74,12 +45,12 @@ const LeaderboardPage: React.FC = () => {
         };
 
         fetchLeaderboard();
-    }, [gameId, currentUser, token, apiService, message]);
+    }, [gameId, currentUser, token, apiService]);
 
     const totalScores = (gameResult?.scores ?? []).slice().sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
     const usernames = gameResult?.usernames ?? {};
     const numRounds = gameResult?.rounds?.length ?? 0;
-    const getName = (userId: string | number) => usernames[userId.toString()] ?? `User ${userId}`;
+    const getName = (userId: number) => usernames[userId] ?? `User ${userId}`;
 
     if (loading) return <div className="page-center">Loading leaderboard...</div>;
     if (!gameResult) return <div className="page-center">No results found.</div>;
@@ -99,12 +70,10 @@ const LeaderboardPage: React.FC = () => {
 
                 <div className="wait-player-list">
                     {totalScores.map((score, index) => {
-                        const userId = score.userId;
-                        const points = score.points;
-                        const isCurrentUser = currentUser && userId === currentUser.userId;
+                        const isCurrentUser = currentUser && score.userId === currentUser.userId;
                         return (
                             <div
-                                key={userId}
+                                key={score.userId}
                                 className="wait-player-row"
                                 style={{
                                     display: "flex",
@@ -114,12 +83,12 @@ const LeaderboardPage: React.FC = () => {
                                     opacity: index === 0 ? 1 : 0.85,
                                 }}
                             >
-                <span>
-                  {MEDAL[index] ?? `#${index + 1}`}&nbsp;&nbsp;{getName(userId)}
-                </span>
+                                <span>
+                                    {MEDAL[index] ?? `#${index + 1}`}&nbsp;&nbsp;{getName(score.userId)}
+                                </span>
                                 <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                  {points} pts
-                </span>
+                                    {score.points} pts
+                                </span>
                             </div>
                         );
                     })}
@@ -134,9 +103,9 @@ const LeaderboardPage: React.FC = () => {
                         <div className="wait-player-list">
                             {round.scores
                                 ? Object.entries(round.scores)
-                                    .sort(([, a], [, b]) => (b.points ?? 0) - (a.points ?? 0))
+                                    .sort(([, a], [, b]) => b - a)
                                     .map(([userId, score]) => {
-                                        const dist = round.distances?.[userId];
+                                        const dist = round.distances?.[Number(userId)];
                                         return (
                                             <div
                                                 key={userId}
@@ -147,15 +116,15 @@ const LeaderboardPage: React.FC = () => {
                                                     fontSize: "0.9em",
                                                 }}
                                             >
-                                                <span>{getName(userId)}</span>
+                                                <span>{getName(Number(userId))}</span>
                                                 <span style={{ display: "flex", gap: 24, fontVariantNumeric: "tabular-nums" }}>
-                            {dist != null && (
-                                <span style={{ opacity: 0.6 }}>
-                                {dist} km off
-                              </span>
-                            )}
-                                                    <span>{score.points ?? 0} pts</span>
-                          </span>
+                                                    {dist != null && (
+                                                        <span style={{ opacity: 0.6 }}>
+                                                            {dist} km off
+                                                        </span>
+                                                    )}
+                                                    <span>{score} pts</span>
+                                                </span>
                                             </div>
                                         );
                                     })

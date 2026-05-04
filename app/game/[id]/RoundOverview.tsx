@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useState , useMemo} from "react";
 import { useRouter, useParams } from "next/navigation";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { RMap, RMarker } from "maplibre-react-components";
@@ -22,18 +22,18 @@ const RoundOverview: React.FC<RoundOverviewProps> = ({ train, results, currentRo
     const router = useRouter();
     const { user } = useAuth();
     const { id: gameId } = useParams<{ id: string }>();
-    const [unsortedResults, setUnsortedResults] = useState<UserResult[]>(results);
-    const [sortedRoundResults, setSortedRoundResults] = useState<UserResult[]>([]);
-    const [sortedTotalResults, setSortedTotalResults] = useState<UserResult[]>([]);
+
     const [readyForNextRound, setReadyForNextRound] = useState(false);
 
-    useEffect(() => {
-        const sortedResults = [...unsortedResults].sort((a, b) => b.roundPoints - a.roundPoints);
-        setSortedRoundResults(sortedResults);
+    const sortedRoundResults = useMemo(
+        () => [...results].sort((a, b) => b.roundPoints - a.roundPoints),
+        [results]
+    );
 
-        const sortedTotal = [...unsortedResults].sort((a, b) => b.totalPoints - a.totalPoints);
-        setSortedTotalResults(sortedTotal);
-    }, [unsortedResults]);
+    const sortedTotalResults = useMemo(
+        () => [...results].sort((a, b) => b.totalPoints - a.totalPoints),
+        [results]
+    );
 
     const handleReadyForNextRound = () => {
         if (readyForNextRound) return;
